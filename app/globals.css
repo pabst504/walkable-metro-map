@@ -107,6 +107,46 @@ input {
   will-change: transform, opacity;
 }
 
+.sidebarSection {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(16, 33, 47, 0.08);
+  border-radius: 1.1rem;
+  background: rgba(255, 255, 255, 0.38);
+  min-height: 0;
+}
+
+.shedSection {
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  max-height: min(56vh, calc(100vh - 18rem));
+  overflow: hidden;
+}
+
+.shell[data-theme="dark"] .sidebarSection {
+  border-color: rgba(182, 201, 214, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sectionHeader {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.sectionHeader h2 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.sectionEyebrow {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+
 .shell[data-theme="dark"] .sidebar {
   box-shadow:
     0 0 0 1px rgba(143, 213, 225, 0.1),
@@ -376,11 +416,48 @@ input {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.addressLookup .customTimeRow input {
+  width: auto;
+  flex: 1;
+}
+
 .controlNote {
   margin: 0;
   color: var(--muted);
   font-size: 0.76rem;
   line-height: 1.35;
+}
+
+.errorText {
+  color: #bf4342;
+}
+
+.shell[data-theme="dark"] .errorText {
+  color: #f29b98;
+}
+
+.nearestStationCard {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(19, 33, 41, 0.08);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--text);
+}
+
+.shell[data-theme="dark"] .nearestStationCard {
+  border-color: rgba(182, 201, 214, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.nearestStationEyebrow {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .searchResults {
@@ -445,7 +522,17 @@ input {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0.45rem;
   min-height: 0;
-  max-height: clamp(8rem, 32vh, 18rem);
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+}
+
+.selectedStationViewport {
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  padding: 0.1rem 0.1rem 0.7rem;
+  border-radius: 1rem;
   overflow: hidden;
 }
 
@@ -459,9 +546,58 @@ input {
   display: grid;
   gap: 0.35rem;
   min-height: 0;
-  max-height: none;
-  overflow: auto;
-  padding-right: 0.1rem;
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.1rem 0.2rem 0.1rem 0.1rem;
+  border-radius: 0.9rem;
+}
+
+.selectedStationList .searchResult {
+  max-width: 100%;
+}
+
+.selectedStationItem {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.45rem 0.4rem 0.8rem;
+}
+
+.selectedStationButton {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.selectedStationRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  border: 1px solid rgba(19, 33, 41, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.shell[data-theme="dark"] .selectedStationRemove {
+  border-color: rgba(182, 201, 214, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
 }
 
 .selectionMeta {
@@ -620,6 +756,102 @@ input {
   color: #8fd5e1;
 }
 
+.nearestStationOverlayIcon {
+  background: transparent;
+  border: 0;
+}
+
+.nearestStationOverlayBubble {
+  position: relative;
+  display: grid;
+  gap: 0.24rem;
+  min-width: 15rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(16, 33, 47, 0.14);
+  border-radius: 1rem;
+  background: rgba(248, 245, 236, 0.97);
+  color: var(--text);
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.18),
+    0 12px 28px rgba(16, 33, 47, 0.16);
+  backdrop-filter: blur(10px);
+  transform: translate(-50%, -100%);
+}
+
+.nearestStationOverlayBubble.compact {
+  min-width: 9.5rem;
+  padding: 0.5rem 0.6rem;
+  gap: 0.12rem;
+}
+
+.nearestStationOverlayClose {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.55rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.nearestStationOverlayBubble.compact .nearestStationOverlayClose {
+  top: 0.24rem;
+  right: 0.3rem;
+  font-size: 0.68rem;
+}
+
+.nearestStationOverlayTitle {
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding-right: 1rem;
+}
+
+.nearestStationOverlayBubble.compact .nearestStationOverlayTitle {
+  font-size: 0.76rem;
+  padding-right: 0.8rem;
+}
+
+.nearestStationOverlayMeta {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.3;
+}
+
+.nearestStationOverlayBubble.compact .nearestStationOverlayMeta {
+  font-size: 0.66rem;
+  line-height: 1.2;
+}
+
+.nearestStationOverlayBubble.minimal {
+  min-width: 8.25rem;
+  padding: 0.42rem 0.5rem;
+  gap: 0.08rem;
+}
+
+.nearestStationOverlayBubble.minimal .nearestStationOverlayClose {
+  top: 0.18rem;
+  right: 0.24rem;
+  font-size: 0.6rem;
+}
+
+.nearestStationOverlayBubble.minimal .nearestStationOverlayTitle {
+  font-size: 0.7rem;
+  padding-right: 0.65rem;
+}
+
+.nearestStationOverlayBubble.minimal .nearestStationOverlayMeta {
+  font-size: 0.6rem;
+  line-height: 1.15;
+}
+
+.shell[data-theme="dark"] .nearestStationOverlayBubble {
+  border-color: rgba(182, 201, 214, 0.14);
+  background: rgba(18, 27, 35, 0.97);
+  box-shadow:
+    0 0 0 4px rgba(91, 183, 202, 0.14),
+    0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
 .stationStopIcon,
 .stationLabelIcon {
   background: transparent;
@@ -729,14 +961,33 @@ input {
     right: 0.75rem;
     bottom: 0.75rem;
     width: auto;
-    height: min(58vh, 34rem);
+    height: min(44vh, 24rem);
     max-height: none;
+    gap: 0.75rem;
+    padding: 0.95rem;
     border-radius: 1.25rem;
     overflow: visible;
   }
 
+  .sidebarSection {
+    gap: 0.7rem;
+    padding: 0.75rem;
+  }
+
   .desktopOnly {
     display: none;
+  }
+
+  .shedSection {
+    grid-template-rows: none;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .searchResults {
+    top: auto;
+    bottom: calc(100% + 0.35rem);
+    max-height: min(14rem, 30vh);
   }
 
   .shell[data-sidebar="closed"] .sidebar {
@@ -749,7 +1000,7 @@ input {
   .drawerHandle {
     top: auto;
     left: 50%;
-    bottom: calc(0.75rem + min(58vh, 34rem) - 1rem);
+    bottom: calc(0.75rem + min(44vh, 24rem) - 1rem);
     width: 3.5rem;
     height: 2rem;
     transform: translateX(-50%);
@@ -775,6 +1026,10 @@ input {
   .mapPanel,
   .mapCanvas {
     min-height: 100vh;
+  }
+
+  .leaflet-control-attribution {
+    display: none;
   }
 
   .mapThemeToggle {

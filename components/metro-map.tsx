@@ -8,11 +8,14 @@ import {
   TileLayer,
   Tooltip,
   Marker,
+  CircleMarker,
+  Polyline,
   useMap,
   useMapEvents
 } from "react-leaflet";
 import { DivIcon } from "leaflet";
 import type { PathOptions } from "leaflet";
+import type { NearestStationResult } from "@/lib/nearest-station";
 import type { MetroStation } from "@/lib/wmata-stations";
 
 type IsochroneCollection = GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
@@ -23,6 +26,8 @@ type MetroMapProps = {
   activeMinutes: number[];
   focusedStationId: string | null;
   theme: "light" | "dark";
+  nearestStationResult: NearestStationResult | null;
+  onClearNearestStation: () => void;
   onToggleStation: (id: string, options?: { focusMap?: boolean }) => void;
 };
 
@@ -53,13 +58,22 @@ export function MetroMap({
   activeMinutes,
   focusedStationId,
   theme,
+  nearestStationResult,
+  onClearNearestStation,
   onToggleStation
 }: MetroMapProps) {
   const [isochronesByStation, setIsochronesByStation] = useState<Record<string, IsochroneCollection>>({});
   const [zoom, setZoom] = useState(0);
+  const [isNearestOverlayVisible, setIsNearestOverlayVisible] = useState(true);
   const focusedStation = stations.find((station) => station.id === focusedStationId) ?? null;
   const baseMapVariant = theme === "dark" ? "dark_nolabels" : "light_nolabels";
   const labelMapVariant = theme === "dark" ? "dark_only_labels" : "light_only_labels";
+
+  useEffect(() => {
+    if (nearestStationResult) {
+      setIsNearestOverlayVisible(true);
+    }
+  }, [nearestStationResult]);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,6 +154,7 @@ export function MetroMap({
       className="mapCanvas"
       scrollWheelZoom
       zoomControl={false}
+      markerZoomAnimation={false}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -156,7 +171,58 @@ export function MetroMap({
       ) : null}
 
       <MapZoomTracker onZoomChange={setZoom} />
-      <MapViewController station={focusedStation} />
+      <MapViewController station={focusedStation} nearestStationResult={nearestStationResult} />
+
+      {nearestStationResult ? (
+        <>
+          <Polyline
+            positions={nearestStationResult.route.coordinates.map(([lng, lat]) => [lat, lng] as [number, number])}
+            pathOptions={{
+              color: theme === "dark" ? "#8fd5e1" : "#1f7a8c",
+              weight: 4,
+              opacity: 0.85
+            }}
+          />
+          <CircleMarker
+            center={[nearestStationResult.address.lat, nearestStationResult.address.lng]}
+            radius={7}
+            pathOptions={{
+              color: theme === "dark" ? "#10161d" : "#ffffff",
+              weight: 2,
+              fillColor: theme === "dark" ? "#8fd5e1" : "#1f7a8c",
+              fillOpacity: 1
+            }}
+          >
+            <Tooltip direction="top" offset={[0, -4]}>
+              <strong>{nearestStationResult.matchedAddress}</strong>
+              <br />
+              Start point
+            </Tooltip>
+          </CircleMarker>
+          {isNearestOverlayVisible ? (
+            <Marker
+              position={[
+                (nearestStationResult.address.lat + nearestStationResult.station.lat) / 2,
+                (nearestStationResult.address.lng + nearestStationResult.station.lng) / 2
+              ]}
+              icon={createNearestStationOverlayIcon(
+                nearestStationResult.station.name,
+                nearestStationResult.station.lines.join(" / "),
+                Math.max(1, Math.round(nearestStationResult.walkingDurationSeconds / 60)),
+                (nearestStationResult.walkingDistanceMeters / 1609.344).toFixed(1),
+                zoom < 13,
+                zoom < 11
+              )}
+              eventHandlers={{
+                click: () => {
+                  setIsNearestOverlayVisible(false);
+                  onClearNearestStation();
+                }
+              }}
+            />
+          ) : null}
+        </>
+      ) : null}
 
       {selectedStations.map((station) => {
         const collection = isochronesByStation[station.id];
@@ -225,11 +291,14 @@ export function MetroMap({
 
 type MapViewControllerProps = {
   station: MetroStation | null;
+  nearestStationResult: NearestStationResult | null;
 };
 
-function MapViewController({ station }: MapViewControllerProps) {
+function MapViewController({ station, nearestStationResult }: MapViewControllerProps) {
   const map = useMap();
   const hasInitialized = useRef(false);
+  const previousNearestResult = useRef<NearestStationResult | null>(null);
+  const previousStationId = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     const container = map.getContainer();
@@ -265,17 +334,43 @@ function MapViewController({ station }: MapViewControllerProps) {
       return;
     }
 
+    if (nearestStationResult) {
+      map.fitBounds(
+        [
+          [nearestStationResult.address.lat, nearestStationResult.address.lng],
+          [nearestStationResult.station.lat, nearestStationResult.station.lng]
+        ],
+        {
+          padding: [80, 80]
+        }
+      );
+      previousNearestResult.current = nearestStationResult;
+      previousStationId.current = station?.id ?? null;
+      return;
+    }
+
+    if (previousNearestResult.current && !nearestStationResult) {
+      previousNearestResult.current = null;
+      previousStationId.current = station?.id ?? null;
+      return;
+    }
+
     if (!station) {
       map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, {
         animate: false
       });
+      previousStationId.current = null;
       return;
     }
 
-    map.setView([station.lat, station.lng], 13, {
-      animate: false
-    });
-  }, [map, station]);
+    if (previousStationId.current !== station.id) {
+      map.setView([station.lat, station.lng], 13, {
+        animate: false
+      });
+    }
+
+    previousStationId.current = station.id;
+  }, [map, nearestStationResult, station]);
 
   return null;
 }
@@ -324,6 +419,29 @@ function createStationLabelIcon(name: string, isSelected: boolean) {
     html: `<span class="stationMapLabel${isSelected ? " selected" : ""}">${escapedName}</span>`,
     iconSize: [0, 0],
     iconAnchor: [0, -14]
+  });
+}
+
+function createNearestStationOverlayIcon(
+  stationName: string,
+  lineLabel: string,
+  walkingMinutes: number,
+  walkingMiles: string,
+  compact: boolean,
+  minimal: boolean
+) {
+  return new DivIcon({
+    className: "nearestStationOverlayIcon",
+    html: `
+      <span class="nearestStationOverlayBubble${compact ? " compact" : ""}${minimal ? " minimal" : ""}">
+        <span class="nearestStationOverlayClose" aria-hidden="true">x</span>
+        <span class="nearestStationOverlayTitle">${escapeHtml(stationName)}</span>
+        ${minimal ? "" : `<span class="nearestStationOverlayMeta">${escapeHtml(lineLabel)}</span>`}
+        <span class="nearestStationOverlayMeta">${walkingMinutes} min walk • ${walkingMiles} mi</span>
+      </span>
+    `,
+    iconSize: [0, 0],
+    iconAnchor: [0, 64]
   });
 }
 
