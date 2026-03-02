@@ -430,6 +430,12 @@ export function MetroMapShell() {
         aria-controls="station-drawer"
         aria-label={sidebarOpen ? "Hide controls" : "Show controls"}
       >
+        <img
+          src="/right.png"
+          alt=""
+          aria-hidden="true"
+          className={`drawerHandleIcon ${sidebarOpen ? "open" : "closed"}`}
+        />
         <span className={`drawerArrowTab ${sidebarOpen ? "open" : "closed"}`} aria-hidden="true">
           <span className="drawerArrowShaft" />
           <span className="drawerArrowHead" />
