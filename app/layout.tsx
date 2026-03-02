@@ -4,7 +4,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Walkable Metro Map",
-  description: "WMATA stations with selectable walking isochrones."
+  description: "WMATA stations with selectable walking isochrones.",
+  icons: {
+    icon: "/WMATA_Metro_Logo_small.svg",
+    apple: "/WMATA_Metro_Logo_small.svg"
+  }
 };
 
 type RootLayoutProps = {

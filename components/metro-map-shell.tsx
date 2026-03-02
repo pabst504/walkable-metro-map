@@ -165,10 +165,17 @@ export function MetroMapShell() {
         cache: "no-store"
       });
       const payload = (await response.json()) as NearestStationResult | { error?: string };
+      const errorPayload = payload as { error?: string };
 
-      if (!response.ok || "error" in payload) {
+      if (!response.ok) {
         setAddressStatus("error");
-        setAddressError(payload.error ?? "Unable to look up that address.");
+        setAddressError(errorPayload.error ?? "Unable to look up that address.");
+        return;
+      }
+
+      if (!("station" in payload)) {
+        setAddressStatus("error");
+        setAddressError("Unable to look up that address.");
         return;
       }
 
