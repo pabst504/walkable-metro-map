@@ -22,6 +22,7 @@ type MetroMapProps = {
   selectedStations: MetroStation[];
   activeMinutes: number[];
   focusedStationId: string | null;
+  theme: "light" | "dark";
   onToggleStation: (id: string, options?: { focusMap?: boolean }) => void;
 };
 
@@ -36,13 +37,14 @@ const LINE_COLORS: Record<string, string> = {
 
 const ISOCHRONE_COLORS: Record<number, string> = {
   5: "#1f7a8c",
+  10: "#5c9d62",
   15: "#bf4342"
 };
 
 const DEFAULT_MAP_CENTER: [number, number] = [38.9072, -77.0369];
 const DEFAULT_MAP_ZOOM = 11;
-const SELECTED_STATION_LABEL_MIN_ZOOM = 11;
-const ALL_STATION_LABEL_MIN_ZOOM = 13;
+const SELECTED_STATION_LABEL_MIN_ZOOM = 12;
+const ALL_STATION_LABEL_MIN_ZOOM = 14;
 const STREET_LABEL_MIN_ZOOM = 13;
 
 export function MetroMap({
@@ -50,25 +52,43 @@ export function MetroMap({
   selectedStations,
   activeMinutes,
   focusedStationId,
+  theme,
   onToggleStation
 }: MetroMapProps) {
   const [isochronesByStation, setIsochronesByStation] = useState<Record<string, IsochroneCollection>>({});
   const [zoom, setZoom] = useState(0);
   const focusedStation = stations.find((station) => station.id === focusedStationId) ?? null;
+  const baseMapVariant = theme === "dark" ? "dark_nolabels" : "light_nolabels";
+  const labelMapVariant = theme === "dark" ? "dark_only_labels" : "light_only_labels";
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadIsochrones() {
-      const missingStations = selectedStations.filter((station) => !isochronesByStation[station.id]);
+      const requestsByStation = selectedStations
+        .map((station) => {
+          const currentCollection = isochronesByStation[station.id];
+          const loadedMinutes = new Set(
+            (currentCollection?.features ?? []).map((feature) => Number(feature.properties?.minutes))
+          );
+          const missingMinutes = activeMinutes.filter((minutes) => !loadedMinutes.has(minutes));
 
-      if (missingStations.length === 0) {
+          return missingMinutes.length > 0 ? { station, missingMinutes } : null;
+        })
+        .filter((value): value is { station: MetroStation; missingMinutes: number[] } => value !== null);
+
+      if (requestsByStation.length === 0) {
         return;
       }
 
       const requests = await Promise.all(
-        missingStations.map(async (station) => {
-          const response = await fetch(`/api/isochrones?lat=${station.lat}&lng=${station.lng}`, {
+        requestsByStation.map(async ({ station, missingMinutes }) => {
+          const params = new URLSearchParams({
+            lat: String(station.lat),
+            lng: String(station.lng),
+            minutes: missingMinutes.join(",")
+          });
+          const response = await fetch(`/api/isochrones?${params.toString()}`, {
             cache: "no-store"
           });
           const data = (await response.json()) as IsochroneCollection;
@@ -81,7 +101,24 @@ export function MetroMap({
           const next = { ...current };
 
           for (const [stationId, data] of requests) {
-            next[stationId] = data;
+            const existingFeatures = next[stationId]?.features ?? [];
+            const mergedFeatures = [...existingFeatures];
+            const seenMinutes = new Set(
+              existingFeatures.map((feature) => Number(feature.properties?.minutes))
+            );
+
+            for (const feature of data.features ?? []) {
+              const minutes = Number(feature.properties?.minutes);
+
+              if (!seenMinutes.has(minutes)) {
+                mergedFeatures.push(feature);
+              }
+            }
+
+            next[stationId] = {
+              type: "FeatureCollection",
+              features: mergedFeatures
+            };
           }
 
           return next;
@@ -94,7 +131,7 @@ export function MetroMap({
     return () => {
       cancelled = true;
     };
-  }, [isochronesByStation, selectedStations]);
+  }, [activeMinutes, isochronesByStation, selectedStations]);
 
   return (
     <MapContainer
@@ -102,16 +139,17 @@ export function MetroMap({
       zoom={DEFAULT_MAP_ZOOM}
       className="mapCanvas"
       scrollWheelZoom
+      zoomControl={false}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-        url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png"
+        url={`https://{s}.basemaps.cartocdn.com/${baseMapVariant}/{z}/{x}/{y}{r}.png`}
         subdomains={["a", "b", "c", "d"]}
       />
       {zoom >= STREET_LABEL_MIN_ZOOM ? (
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png"
+          url={`https://{s}.basemaps.cartocdn.com/${labelMapVariant}/{z}/{x}/{y}{r}.png`}
           subdomains={["a", "b", "c", "d"]}
           pane="overlayPane"
         />
@@ -132,14 +170,14 @@ export function MetroMap({
             const minutes = Number(feature.properties?.minutes);
             return activeMinutes.includes(minutes);
           })
-          .map((feature) => {
-            const minutes = Number(feature.properties?.minutes);
-            const style: PathOptions = {
-              color: ISOCHRONE_COLORS[minutes] ?? "#4c6a92",
-              weight: 2,
-              fillOpacity: minutes === 5 ? 0.18 : 0.1,
-              opacity: 0.9
-            };
+            .map((feature) => {
+              const minutes = Number(feature.properties?.minutes);
+              const style: PathOptions = {
+                color: getIsochroneColor(minutes),
+                weight: 2,
+                fillOpacity: minutes <= 5 ? 0.18 : minutes <= 10 ? 0.14 : 0.1,
+                opacity: 0.9
+              };
 
             return (
               <GeoJSON
@@ -260,6 +298,7 @@ function MapZoomTracker({ onZoomChange }: MapZoomTrackerProps) {
   return null;
 }
 
+
 function createStationIcon(station: MetroStation, isSelected: boolean) {
   const width = Math.max(18, 10 + station.lines.length * 8);
   const dots = station.lines
@@ -295,4 +334,13 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function getIsochroneColor(minutes: number) {
+  if (ISOCHRONE_COLORS[minutes]) {
+    return ISOCHRONE_COLORS[minutes];
+  }
+
+  const hue = Math.max(8, 210 - Math.min(minutes, 60) * 3);
+  return `hsl(${hue} 52% 44%)`;
 }

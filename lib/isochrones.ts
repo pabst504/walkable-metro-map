@@ -44,10 +44,11 @@ function buildPolygon(lat: number, lng: number, minutes: number): GeoJSON.Featur
 
 export function buildFallbackIsochrones(
   lat: number,
-  lng: number
+  lng: number,
+  minutesList: number[]
 ): GeoJSON.FeatureCollection<GeoJSON.Polygon> {
   return {
     type: "FeatureCollection",
-    features: [buildPolygon(lat, lng, 5), buildPolygon(lat, lng, 15)]
+    features: minutesList.map((minutes) => buildPolygon(lat, lng, minutes))
   };
 }

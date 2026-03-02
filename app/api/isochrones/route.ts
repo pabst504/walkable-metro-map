@@ -10,15 +10,21 @@ type OpenRouteServiceFeature = GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPo
 export async function GET(request: NextRequest) {
   const lat = Number(request.nextUrl.searchParams.get("lat"));
   const lng = Number(request.nextUrl.searchParams.get("lng"));
+  const minutesParam = request.nextUrl.searchParams.get("minutes") ?? "";
+  const requestedMinutes = parseRequestedMinutes(minutesParam);
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return NextResponse.json({ error: "Invalid station coordinates." }, { status: 400 });
   }
 
+  if (requestedMinutes.length === 0) {
+    return NextResponse.json({ error: "No valid walking times were provided." }, { status: 400 });
+  }
+
   const apiKey = process.env.OPENROUTESERVICE_API_KEY;
 
   if (!apiKey) {
-    return NextResponse.json(buildFallbackIsochrones(lat, lng));
+    return NextResponse.json(buildFallbackIsochrones(lat, lng, requestedMinutes));
   }
 
   try {
@@ -30,7 +36,7 @@ export async function GET(request: NextRequest) {
       },
       body: JSON.stringify({
         locations: [[lng, lat]],
-        range: [300, 900],
+        range: requestedMinutes.map((minutes) => minutes * 60),
         range_type: "time",
         location_type: "start",
         attributes: ["area", "reachfactor"]
@@ -39,7 +45,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      return NextResponse.json(buildFallbackIsochrones(lat, lng));
+      return NextResponse.json(buildFallbackIsochrones(lat, lng, requestedMinutes));
     }
 
     const data = (await response.json()) as GeoJSON.FeatureCollection<
@@ -65,6 +71,16 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(normalized);
   } catch {
-    return NextResponse.json(buildFallbackIsochrones(lat, lng));
+    return NextResponse.json(buildFallbackIsochrones(lat, lng, requestedMinutes));
   }
+}
+
+function parseRequestedMinutes(value: string) {
+  return [...new Set(
+    value
+      .split(",")
+      .map((entry) => Number(entry.trim()))
+      .filter((entry) => Number.isFinite(entry))
+      .map((entry) => Math.max(1, Math.min(60, Math.round(entry))))
+  )].sort((a, b) => a - b);
 }
