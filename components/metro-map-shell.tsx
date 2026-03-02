@@ -24,6 +24,7 @@ export function MetroMapShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [nearestStationResult, setNearestStationResult] = useState<NearestStationResult | null>(null);
+  const [loadingIsochroneStationIds, setLoadingIsochroneStationIds] = useState<string[]>([]);
   const [addressStatus, setAddressStatus] = useState<"idle" | "loading" | "error">("idle");
   const [addressError, setAddressError] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -240,7 +241,15 @@ export function MetroMapShell() {
                 }}
                 disabled={addressStatus === "loading"}
               >
-                {addressStatus === "loading" ? "..." : "Go"}
+                {addressStatus === "loading" ? (
+                  <span className="loadingDots" aria-label="Loading" role="status">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                ) : (
+                  "Go"
+                )}
               </button>
             </div>
             {addressError ? <p className="controlNote errorText">{addressError}</p> : null}
@@ -385,14 +394,24 @@ export function MetroMapShell() {
                         <span className="stationName">{station.name}</span>
                         <span className="stationLines">{station.lines.join(" / ")}</span>
                       </button>
-                      <button
-                        type="button"
-                        className="selectedStationRemove"
-                        onClick={() => removeSelectedStation(station.id)}
-                        aria-label={`Remove ${station.name}`}
-                      >
-                        x
-                      </button>
+                      {loadingIsochroneStationIds.includes(station.id) ? (
+                        <span className="selectedStationLoading" aria-label="Loading walk shed" role="status">
+                          <span className="loadingDots" aria-hidden="true">
+                            <span />
+                            <span />
+                            <span />
+                          </span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="selectedStationRemove"
+                          onClick={() => removeSelectedStation(station.id)}
+                          aria-label={`Remove ${station.name}`}
+                        >
+                          x
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -426,6 +445,7 @@ export function MetroMapShell() {
           theme={resolvedTheme}
           nearestStationResult={nearestStationResult}
           onClearNearestStation={clearNearestStation}
+          onIsochroneLoadingChange={setLoadingIsochroneStationIds}
           onToggleStation={toggleStation}
         />
         <div className="mapThemeToggle" aria-label="Map theme controls">

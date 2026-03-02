@@ -28,6 +28,7 @@ type MetroMapProps = {
   theme: "light" | "dark";
   nearestStationResult: NearestStationResult | null;
   onClearNearestStation: () => void;
+  onIsochroneLoadingChange: (stationIds: string[]) => void;
   onToggleStation: (id: string, options?: { focusMap?: boolean }) => void;
 };
 
@@ -60,9 +61,11 @@ export function MetroMap({
   theme,
   nearestStationResult,
   onClearNearestStation,
+  onIsochroneLoadingChange,
   onToggleStation
 }: MetroMapProps) {
   const [isochronesByStation, setIsochronesByStation] = useState<Record<string, IsochroneCollection>>({});
+  const [loadingStationIds, setLoadingStationIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState(0);
   const [isNearestOverlayVisible, setIsNearestOverlayVisible] = useState(true);
   const focusedStation = stations.find((station) => station.id === focusedStationId) ?? null;
@@ -74,6 +77,10 @@ export function MetroMap({
       setIsNearestOverlayVisible(true);
     }
   }, [nearestStationResult]);
+
+  useEffect(() => {
+    onIsochroneLoadingChange(loadingStationIds);
+  }, [loadingStationIds, onIsochroneLoadingChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,52 +98,68 @@ export function MetroMap({
         })
         .filter((value): value is { station: MetroStation; missingMinutes: number[] } => value !== null);
 
+      const requestedStationIds = requestsByStation.map(({ station }) => station.id);
+
       if (requestsByStation.length === 0) {
+        setLoadingStationIds([]);
         return;
       }
 
-      const requests = await Promise.all(
-        requestsByStation.map(async ({ station, missingMinutes }) => {
-          const params = new URLSearchParams({
-            lat: String(station.lat),
-            lng: String(station.lng),
-            minutes: missingMinutes.join(",")
-          });
-          const response = await fetch(`/api/isochrones?${params.toString()}`, {
-            cache: "no-store"
-          });
-          const data = (await response.json()) as IsochroneCollection;
-          return [station.id, data] as const;
-        })
-      );
+      setLoadingStationIds((current) => [...new Set([...current, ...requestedStationIds])]);
 
-      if (!cancelled) {
-        setIsochronesByStation((current) => {
-          const next = { ...current };
+      try {
+        const requests = await Promise.all(
+          requestsByStation.map(async ({ station, missingMinutes }) => {
+            const params = new URLSearchParams({
+              lat: String(station.lat),
+              lng: String(station.lng),
+              minutes: missingMinutes.join(",")
+            });
+            const response = await fetch(`/api/isochrones?${params.toString()}`, {
+              cache: "no-store"
+            });
+            const data = (await response.json()) as IsochroneCollection;
+            return [station.id, data] as const;
+          })
+        );
 
-          for (const [stationId, data] of requests) {
-            const existingFeatures = next[stationId]?.features ?? [];
-            const mergedFeatures = [...existingFeatures];
-            const seenMinutes = new Set(
-              existingFeatures.map((feature) => Number(feature.properties?.minutes))
-            );
+        if (!cancelled) {
+          setIsochronesByStation((current) => {
+            const next = { ...current };
 
-            for (const feature of data.features ?? []) {
-              const minutes = Number(feature.properties?.minutes);
+            for (const [stationId, data] of requests) {
+              const existingFeatures = next[stationId]?.features ?? [];
+              const mergedFeatures = [...existingFeatures];
+              const seenMinutes = new Set(
+                existingFeatures.map((feature) => Number(feature.properties?.minutes))
+              );
 
-              if (!seenMinutes.has(minutes)) {
-                mergedFeatures.push(feature);
+              for (const feature of data.features ?? []) {
+                const minutes = Number(feature.properties?.minutes);
+
+                if (!seenMinutes.has(minutes)) {
+                  mergedFeatures.push(feature);
+                }
               }
+
+              next[stationId] = {
+                type: "FeatureCollection",
+                features: mergedFeatures
+              };
             }
 
-            next[stationId] = {
-              type: "FeatureCollection",
-              features: mergedFeatures
-            };
-          }
-
-          return next;
-        });
+            return next;
+          });
+          setLoadingStationIds((current) =>
+            current.filter((stationId) => !requestedStationIds.includes(stationId))
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setLoadingStationIds((current) =>
+            current.filter((stationId) => !requestedStationIds.includes(stationId))
+          );
+        }
       }
     }
 
