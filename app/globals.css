@@ -950,8 +950,9 @@ input {
   }
 
   .shell {
-    height: 100vh;
-    min-height: 100vh;
+    --mobile-bottom-clearance: max(4.5rem, calc(0.9rem + env(safe-area-inset-bottom, 0px)));
+    height: 100dvh;
+    min-height: 100dvh;
     overflow: hidden;
   }
 
@@ -959,12 +960,12 @@ input {
     top: auto;
     left: 0.75rem;
     right: 0.75rem;
-    bottom: calc(0.9rem + env(safe-area-inset-bottom, 0px));
+    bottom: var(--mobile-bottom-clearance);
     width: auto;
     height: min(44vh, 24rem);
     max-height: none;
     gap: 0.75rem;
-    padding: 0.95rem 0.95rem calc(1.1rem + env(safe-area-inset-bottom, 0px));
+    padding: 0.95rem 0.95rem calc(1.35rem + env(safe-area-inset-bottom, 0px));
     border-radius: 1.25rem;
     overflow: visible;
   }
@@ -1000,7 +1001,7 @@ input {
   .drawerHandle {
     top: auto;
     left: 50%;
-    bottom: calc(0.9rem + env(safe-area-inset-bottom, 0px) + min(44vh, 24rem) - 1rem);
+    bottom: calc(var(--mobile-bottom-clearance) + min(44vh, 24rem) - 1rem);
     width: 3.5rem;
     height: 2rem;
     transform: translateX(-50%);
@@ -1009,7 +1010,7 @@ input {
   .shell[data-sidebar="closed"] .drawerHandle {
     left: 50%;
     top: auto;
-    bottom: calc(0.9rem + env(safe-area-inset-bottom, 0px));
+    bottom: var(--mobile-bottom-clearance);
     transform: translateX(-50%);
   }
 
@@ -1025,7 +1026,7 @@ input {
 
   .mapPanel,
   .mapCanvas {
-    min-height: 100vh;
+    min-height: 100dvh;
   }
 
   .leaflet-control-attribution {
