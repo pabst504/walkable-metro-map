@@ -1006,7 +1006,8 @@ input {
   }
 
   .shell {
-    --mobile-bottom-clearance: max(4.5rem, calc(0.9rem + env(safe-area-inset-bottom, 0px)));
+    --mobile-bottom-clearance: max(7rem, calc(1rem + env(safe-area-inset-bottom, 0px)));
+    --mobile-drawer-height: clamp(21rem, 42svh, 24rem);
     height: 100dvh;
     min-height: 100dvh;
     overflow: hidden;
@@ -1018,17 +1019,25 @@ input {
     right: 0.75rem;
     bottom: var(--mobile-bottom-clearance);
     width: auto;
-    height: min(44vh, 24rem);
+    height: var(--mobile-drawer-height);
     max-height: none;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
     gap: 0.75rem;
     padding: 0.95rem 0.95rem calc(1.35rem + env(safe-area-inset-bottom, 0px));
     border-radius: 1.25rem;
-    overflow: visible;
+    overflow-y: auto;
+    overflow-x: visible;
   }
 
   .sidebarSection {
+    align-content: start;
     gap: 0.7rem;
     padding: 0.75rem;
+    height: 100%;
+  }
+
+  .addressSection {
+    padding-bottom: 1.35rem;
   }
 
   .desktopOnly {
@@ -1039,6 +1048,7 @@ input {
     grid-template-rows: none;
     max-height: none;
     overflow: visible;
+    padding-bottom: 1.35rem;
   }
 
   .searchResults {
@@ -1057,7 +1067,7 @@ input {
   .drawerHandle {
     top: auto;
     left: 50%;
-    bottom: calc(var(--mobile-bottom-clearance) + min(44vh, 24rem) - 1rem);
+    bottom: calc(var(--mobile-bottom-clearance) + var(--mobile-drawer-height) - 1rem);
     width: 3.5rem;
     height: 2rem;
     transform: translateX(-50%);
