@@ -72,6 +72,7 @@ export function MetroMap({
   const baseMapVariant = theme === "dark" ? "dark_nolabels" : "light_nolabels";
   const labelMapVariant = theme === "dark" ? "dark_only_labels" : "light_only_labels";
 
+  
   useEffect(() => {
     if (nearestStationResult) {
       setIsNearestOverlayVisible(true);
