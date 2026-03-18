@@ -195,6 +195,7 @@ export function MetroMap({
       ) : null}
 
       <MapZoomTracker onZoomChange={setZoom} />
+      <ZoomControls />
       <MapViewController station={focusedStation} nearestStationResult={nearestStationResult} />
 
       {nearestStationResult ? (
@@ -403,6 +404,16 @@ type MapZoomTrackerProps = {
   onZoomChange: (zoom: number) => void;
 };
 
+function ZoomControls() {
+  const map = useMap();
+  return (
+    <div className="mapZoomControls">
+      <button type="button" className="zoomBtn" onClick={() => map.zoomIn()} aria-label="Zoom in">+</button>
+      <button type="button" className="zoomBtn" onClick={() => map.zoomOut()} aria-label="Zoom out">−</button>
+    </div>
+  );
+}
+
 function MapZoomTracker({ onZoomChange }: MapZoomTrackerProps) {
   const map = useMapEvents({
     zoomend: () => {
@@ -458,7 +469,7 @@ function createNearestStationOverlayIcon(
     className: "nearestStationOverlayIcon",
     html: `
       <span class="nearestStationOverlayBubble${compact ? " compact" : ""}${minimal ? " minimal" : ""}">
-        <span class="nearestStationOverlayClose" aria-hidden="true">x</span>
+        <span class="nearestStationOverlayClose" aria-hidden="true">×</span>
         <span class="nearestStationOverlayTitle">${escapeHtml(stationName)}</span>
         ${minimal ? "" : `<span class="nearestStationOverlayMeta">${escapeHtml(lineLabel)}</span>`}
         <span class="nearestStationOverlayMeta">${walkingMinutes} min walk • ${walkingMiles} mi</span>
