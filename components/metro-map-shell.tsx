@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { NearestStationResult } from "@/lib/nearest-station";
 import { WMATA_STATIONS } from "@/lib/wmata-stations";
@@ -11,6 +11,52 @@ const MetroMap = dynamic(() => import("@/components/metro-map").then((mod) => mo
 
 type MapThemePreference = "light" | "dark";
 const PRESET_MINUTES = [5, 10, 15] as const;
+
+const LINE_COLORS: Record<string, string> = {
+  Red: "#d73b3e",
+  Orange: "#da8707",
+  Blue: "#0d63ae",
+  Silver: "#90a4ae",
+  Yellow: "#f0c808",
+  Green: "#009b4d"
+};
+
+
+const ISOCHRONE_COLORS: Record<number, string> = {
+  5: "#1f7a8c",
+  10: "#5c9d62",
+  15: "#bf4342"
+};
+
+function getIsochroneColor(minutes: number): string {
+  if (ISOCHRONE_COLORS[minutes]) return ISOCHRONE_COLORS[minutes];
+  const hue = Math.max(8, 210 - Math.min(minutes, 60) * 3);
+  return `hsl(${hue} 52% 44%)`;
+}
+
+function SunIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+      <circle cx="6.5" cy="6.5" r="2.5" fill="currentColor" />
+      <line x1="6.5" y1="0" x2="6.5" y2="2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="6.5" y1="11" x2="6.5" y2="13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="0" y1="6.5" x2="2" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="11" y1="6.5" x2="13" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="2.34" y1="2.34" x2="3.75" y2="3.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="9.25" y1="9.25" x2="10.66" y2="10.66" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="10.66" y1="2.34" x2="9.25" y2="3.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="3.75" y1="9.25" x2="2.34" y2="10.66" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+      <path d="M10.8 8.8C9.6 10.3 7.6 11.1 5.5 10.5C3.4 9.9 1.9 8 1.9 5.8C1.9 3.6 3.4 1.7 5.5 1.1C3.7 2.4 3.0 4.8 4.0 6.8C5.0 8.8 7.3 9.7 9.3 9.0C9.8 8.9 10.3 8.8 10.8 8.8Z" fill="currentColor" />
+    </svg>
+  );
+}
 
 export function MetroMapShell() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -27,6 +73,7 @@ export function MetroMapShell() {
   const [loadingIsochroneStationIds, setLoadingIsochroneStationIds] = useState<string[]>([]);
   const [addressStatus, setAddressStatus] = useState<"idle" | "loading" | "error">("idle");
   const [addressError, setAddressError] = useState("");
+  const stationSearchRef = useRef<HTMLInputElement>(null);
   const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
@@ -91,12 +138,59 @@ export function MetroMapShell() {
     (minutes) => !PRESET_MINUTES.includes(minutes as 5 | 10 | 15)
   );
 
+  // Read URL state on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const stationParam = params.get("stations");
+    const minutesParam = params.get("minutes");
+
+    if (stationParam) {
+      const ids = stationParam.split(",").filter((id) => WMATA_STATIONS.some((s) => s.id === id));
+      if (ids.length > 0) setSelectedIds(ids);
+    }
+
+    if (minutesParam) {
+      const minutes = minutesParam.split(",").map(Number).filter((n) => n > 0 && n <= 60);
+      if (minutes.length > 0) {
+        setActiveMinutes(minutes);
+        const custom = minutes.filter((m) => !PRESET_MINUTES.includes(m as 5 | 10 | 15));
+        if (custom.length > 0) setAvailableCustomMinutes(custom);
+      }
+    }
+  }, []);
+
+  // Write URL state when selection changes
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (selectedIds.length > 0) params.set("stations", selectedIds.join(","));
+    if (activeMinutes.length > 0) params.set("minutes", activeMinutes.join(","));
+    const search = params.toString();
+    window.history.replaceState(null, "", search ? `?${search}` : window.location.pathname);
+  }, [selectedIds, activeMinutes]);
+
+  // Keyboard shortcut: "/" to focus station search
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.key === "/" &&
+        document.activeElement?.tagName !== "INPUT" &&
+        document.activeElement?.tagName !== "TEXTAREA"
+      ) {
+        event.preventDefault();
+        stationSearchRef.current?.focus();
+        if (isMobile) setSidebarOpen(true);
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isMobile]);
+
   function toggleStation(id: string, options?: { focusMap?: boolean }) {
     const focusMap = options?.focusMap ?? false;
     const isSelected = selectedIds.includes(id);
     const nextSelection = isSelected
       ? selectedIds.filter((stationId) => stationId !== id)
-      : [...selectedIds, id];
+      : [id, ...selectedIds];
 
     setSelectedIds(nextSelection);
 
@@ -235,7 +329,7 @@ export function MetroMapShell() {
               />
               <button
                 type="button"
-                className="toggle"
+                className="toggle primaryBtn"
                 onClick={() => {
                   void findNearestStation();
                 }}
@@ -267,6 +361,7 @@ export function MetroMapShell() {
             <div className="toggleRow">
               {PRESET_MINUTES.map((minutes) => {
                 const active = activeMinutes.includes(minutes);
+                const color = getIsochroneColor(minutes);
 
                 return (
                   <button
@@ -274,6 +369,7 @@ export function MetroMapShell() {
                     type="button"
                     className={active ? "toggle active" : "toggle"}
                     onClick={() => toggleMinutes(minutes)}
+                    style={active ? { background: color, borderColor: "transparent", color: "#fff" } : { borderColor: color, color: color }}
                   >
                     {minutes} min
                   </button>
@@ -284,6 +380,7 @@ export function MetroMapShell() {
               <div className="toggleRow customToggleRow">
                 {customMinutes.map((minutes) => {
                   const active = activeMinutes.includes(minutes);
+                  const color = getIsochroneColor(minutes);
 
                   return (
                     <button
@@ -291,6 +388,7 @@ export function MetroMapShell() {
                       type="button"
                       className={active ? "toggle active" : "toggle"}
                       onClick={() => toggleMinutes(minutes)}
+                      style={active ? { background: color, borderColor: "transparent", color: "#fff" } : { borderColor: color, color: color }}
                     >
                       {minutes} min
                     </button>
@@ -298,126 +396,132 @@ export function MetroMapShell() {
                 })}
               </div>
             ) : null}
-            {!isMobile ? (
-              <div className="customTimeRow">
-                <input
-                  type="number"
-                  min={1}
-                  max={60}
-                  step={1}
-                  inputMode="numeric"
-                  value={customMinutesInput}
-                  onChange={(event) => setCustomMinutesInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      addCustomMinutes();
-                    }
-                  }}
-                  placeholder="Walk Time"
-                  aria-label="Custom walking time in minutes"
-                />
-                <button
-                  type="button"
-                  className="toggle"
-                  onClick={addCustomMinutes}
-                >
-                  Add
-                </button>
+            <div className="customTimeRow">
+              <input
+                type="number"
+                min={1}
+                max={60}
+                step={1}
+                inputMode="numeric"
+                value={customMinutesInput}
+                onChange={(event) => setCustomMinutesInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addCustomMinutes();
+                  }
+                }}
+                placeholder="Walk Time"
+                aria-label="Custom walking time in minutes"
+              />
+              <button
+                type="button"
+                className="toggle primaryBtn"
+                onClick={addCustomMinutes}
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          <label className="search">
+            <span>Search for a station</span>
+            <input
+              ref={stationSearchRef}
+              type="search"
+              placeholder="Fort Totten, Silver, Red..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            {deferredQuery.trim() ? (
+              <div className="searchResults" role="listbox" aria-label="Station search results">
+                {filteredStations.length > 0 ? (
+                  filteredStations.map((station) => {
+                    const isSelected = selectedIds.includes(station.id);
+
+                    return (
+                      <button
+                        key={station.id}
+                        type="button"
+                        className={isSelected ? "searchResult selected" : "searchResult"}
+                        onClick={() => {
+                          toggleStation(station.id, { focusMap: true });
+                          setQuery("");
+                          if (isMobile) setSidebarOpen(false);
+                        }}
+                      >
+                        <span className="stationName">{station.name}</span>
+                        <span className="stationLines">
+                          {station.lines.map((line) => (
+                            <span key={line} className="stationLineTag">
+                              <span className="stationLineDot" style={{ background: LINE_COLORS[line] ?? "#385170" }} />
+                              {line}
+                            </span>
+                          ))}
+                        </span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="searchEmpty">No matching stations.</p>
+                )}
               </div>
             ) : null}
-          </div>
-
-          {!isMobile ? (
-            <label className="search">
-              <span>Search for a station</span>
-              <input
-                type="search"
-                placeholder="Fort Totten, Silver, Red..."
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-              {deferredQuery.trim() ? (
-                <div className="searchResults" role="listbox" aria-label="Station search results">
-                  {filteredStations.length > 0 ? (
-                    filteredStations.map((station) => {
-                      const isSelected = selectedIds.includes(station.id);
-
-                      return (
-                        <button
-                          key={station.id}
-                          type="button"
-                          className={isSelected ? "searchResult selected" : "searchResult"}
-                          onClick={() => {
-                            toggleStation(station.id, { focusMap: true });
-                            setQuery("");
-                          }}
-                        >
-                          <span className="stationName">{station.name}</span>
-                          <span className="stationLines">{station.lines.join(" / ")}</span>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <p className="searchEmpty">No matching stations.</p>
-                  )}
-                </div>
-              ) : null}
-            </label>
-          ) : null}
-
-          <div className="selectionMeta desktopOnly">
-            <span>{selectedIds.length} selected</span>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedIds([]);
-              }}
-              disabled={selectedIds.length === 0}
-            >
-              Deselect all stations
-            </button>
-          </div>
+          </label>
 
           {!isMobile && selectedStations.length > 0 ? (
             <div className="selectedStationStack">
-              <span className="selectedStationLabel">Selected stations</span>
-              <div className="selectedStationViewport">
-                <div className="selectedStationList">
-                  {selectedStations.map((station) => (
-                    <div key={station.id} className="searchResult selected selectedStationItem">
+              <div className="selectionMeta">
+                <span className="selectedStationLabel">Selected stations</span>
+                <button type="button" onClick={() => setSelectedIds([])}>
+                  Clear all
+                </button>
+              </div>
+              <div className="selectedStationList">
+                {selectedStations.map((station) => (
+                  <div key={station.id} className="searchResult selected selectedStationItem">
+                    <button
+                      type="button"
+                      className="selectedStationButton"
+                      onClick={() => focusStation(station.id)}
+                    >
+                      <span className="stationName">{station.name}</span>
+                      <span className="stationLines">
+                        {station.lines.map((line) => (
+                          <span key={line} className="stationLineTag">
+                            <span className="stationLineDot" style={{ background: LINE_COLORS[line] ?? "#385170" }} />
+                            {line}
+                          </span>
+                        ))}
+                      </span>
+                    </button>
+                    {loadingIsochroneStationIds.includes(station.id) ? (
+                      <span className="selectedStationLoading" aria-label="Loading walk shed" role="status">
+                        <span className="loadingDots" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                        </span>
+                      </span>
+                    ) : (
                       <button
                         type="button"
-                        className="selectedStationButton"
-                        onClick={() => focusStation(station.id)}
+                        className="selectedStationRemove"
+                        onClick={() => removeSelectedStation(station.id)}
+                        aria-label={`Remove ${station.name}`}
                       >
-                        <span className="stationName">{station.name}</span>
-                        <span className="stationLines">{station.lines.join(" / ")}</span>
+                        ×
                       </button>
-                      {loadingIsochroneStationIds.includes(station.id) ? (
-                        <span className="selectedStationLoading" aria-label="Loading walk shed" role="status">
-                          <span className="loadingDots" aria-hidden="true">
-                            <span />
-                            <span />
-                            <span />
-                          </span>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="selectedStationRemove"
-                          onClick={() => removeSelectedStation(station.id)}
-                          aria-label={`Remove ${station.name}`}
-                        >
-                          x
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           ) : null}
+
+          {selectedIds.length > 0 && activeMinutes.length === 0 && (
+            <p className="controlNote walkTimeHint">Select a walk time above to see the walking shed</p>
+          )}
         </div>
 
       </section>
@@ -454,6 +558,16 @@ export function MetroMapShell() {
           onIsochroneLoadingChange={setLoadingIsochroneStationIds}
           onToggleStation={toggleStation}
         />
+        {activeMinutes.length > 0 && (
+          <div className="isochroneLegend" aria-label="Walking shed legend">
+            {activeMinutes.map((minutes) => (
+              <div key={minutes} className="legendItem">
+                <span className="legendSwatch" style={{ background: getIsochroneColor(minutes) }} />
+                <span>{minutes} min</span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="mapThemeToggle" aria-label="Map theme controls">
           {(["light", "dark"] as const).map((theme) => {
             const active = themePreference === theme;
@@ -462,11 +576,12 @@ export function MetroMapShell() {
               <button
                 key={theme}
                 type="button"
-                className={active ? "toggle active" : "toggle"}
+                className={active ? "toggle active themeToggleBtn" : "toggle themeToggleBtn"}
                 onClick={() => setThemePreference(theme)}
                 aria-pressed={active}
+                aria-label={theme === "light" ? "Light map" : "Dark map"}
               >
-                {theme}
+                {theme === "light" ? <SunIcon /> : <MoonIcon />}
               </button>
             );
           })}
