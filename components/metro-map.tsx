@@ -17,12 +17,16 @@ import { DivIcon } from "leaflet";
 import type { PathOptions } from "leaflet";
 import type { NearestStationResult } from "@/lib/nearest-station";
 import type { MetroStation } from "@/lib/wmata-stations";
+import type { VreStation } from "@/lib/vre-stations";
+import type { MarcStation } from "@/lib/marc-stations";
 
 type IsochroneCollection = GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
 
+type SelectableStation = { id: string; lat: number; lng: number };
+
 type MetroMapProps = {
   stations: MetroStation[];
-  selectedStations: MetroStation[];
+  selectedStations: SelectableStation[];
   activeMinutes: number[];
   focusedStationId: string | null;
   theme: "light" | "dark";
@@ -30,6 +34,9 @@ type MetroMapProps = {
   onClearNearestStation: () => void;
   onIsochroneLoadingChange: (stationIds: string[]) => void;
   onToggleStation: (id: string, options?: { focusMap?: boolean }) => void;
+  vreStations: VreStation[];
+  marcStations: MarcStation[];
+  visibleTransit: { metro: boolean; marc: boolean; vre: boolean };
 };
 
 const LINE_COLORS: Record<string, string> = {
@@ -62,20 +69,32 @@ export function MetroMap({
   nearestStationResult,
   onClearNearestStation,
   onIsochroneLoadingChange,
-  onToggleStation
+  onToggleStation,
+  vreStations,
+  marcStations,
+  visibleTransit
 }: MetroMapProps) {
+  // Build lookups: metroStationId → station for co-located stations
+  const vreByMetroId = Object.fromEntries(
+    vreStations.filter((v) => v.metroStationId).map((v) => [v.metroStationId!, v])
+  );
+  const marcByMetroId = Object.fromEntries(
+    marcStations.filter((m) => m.metroStationId).map((m) => [m.metroStationId!, m])
+  );
+  // Standalone stations (no Metro overlap)
+  const standaloneVreStations = vreStations.filter((v) => !v.metroStationId);
+  const standaloneMarcStations = marcStations.filter((m) => !m.metroStationId);
   const [isochronesByStation, setIsochronesByStation] = useState<Record<string, IsochroneCollection>>({});
   const [loadingStationIds, setLoadingStationIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState(0);
-  const [isNearestOverlayVisible, setIsNearestOverlayVisible] = useState(true);
+  const [dismissedRouteIds, setDismissedRouteIds] = useState<Set<string>>(new Set());
   const focusedStation = stations.find((station) => station.id === focusedStationId) ?? null;
   const baseMapVariant = theme === "dark" ? "dark_nolabels" : "light_nolabels";
   const labelMapVariant = theme === "dark" ? "dark_only_labels" : "light_only_labels";
 
-  
   useEffect(() => {
     if (nearestStationResult) {
-      setIsNearestOverlayVisible(true);
+      setDismissedRouteIds(new Set());
     }
   }, [nearestStationResult]);
 
@@ -97,7 +116,7 @@ export function MetroMap({
 
           return missingMinutes.length > 0 ? { station, missingMinutes } : null;
         })
-        .filter((value): value is { station: MetroStation; missingMinutes: number[] } => value !== null);
+        .filter((value): value is { station: SelectableStation; missingMinutes: number[] } => value !== null);
 
       const requestedStationIds = requestsByStation.map(({ station }) => station.id);
 
@@ -200,14 +219,45 @@ export function MetroMap({
 
       {nearestStationResult ? (
         <>
-          <Polyline
-            positions={nearestStationResult.route.coordinates.map(([lng, lat]) => [lat, lng] as [number, number])}
-            pathOptions={{
-              color: theme === "dark" ? "#8fd5e1" : "#1f7a8c",
-              weight: 4,
-              opacity: 0.85
-            }}
-          />
+          {/* Route line + info overlay for every station within 15 min */}
+          {nearestStationResult.stations
+            .filter((walk) => !dismissedRouteIds.has(walk.station.id))
+            .map((walk, index) => (
+            <Fragment key={walk.station.id}>
+              <Polyline
+                positions={walk.route.coordinates.map(([lng, lat]) => [lat, lng] as [number, number])}
+                pathOptions={{
+                  color: theme === "dark" ? "#8fd5e1" : "#1f7a8c",
+                  weight: index === 0 ? 4 : 3,
+                  opacity: index === 0 ? 0.85 : 0.55,
+                  dashArray: index === 0 ? undefined : "6 4"
+                }}
+              />
+              <Marker
+                position={[walk.station.lat, walk.station.lng]}
+                icon={createNearestStationOverlayIcon(
+                  walk.station.name,
+                  walk.station.lines.join(" / "),
+                  Math.max(1, Math.round(walk.walkingDurationSeconds / 60)),
+                  (walk.walkingDistanceMeters / 1609.344).toFixed(1),
+                  zoom < 13,
+                  zoom < 11
+                )}
+                eventHandlers={{
+                  click: () => {
+                    const stationId = walk.station.id;
+                    const newDismissed = new Set(dismissedRouteIds).add(stationId);
+                    setDismissedRouteIds(newDismissed);
+                    onToggleStation(stationId);
+                    if (newDismissed.size === nearestStationResult.stations.length) {
+                      onClearNearestStation();
+                    }
+                  }
+                }}
+              />
+            </Fragment>
+          ))}
+          {/* Address pin */}
           <CircleMarker
             center={[nearestStationResult.address.lat, nearestStationResult.address.lng]}
             radius={7}
@@ -224,28 +274,6 @@ export function MetroMap({
               Start point
             </Tooltip>
           </CircleMarker>
-          {isNearestOverlayVisible ? (
-            <Marker
-              position={[
-                (nearestStationResult.address.lat + nearestStationResult.station.lat) / 2,
-                (nearestStationResult.address.lng + nearestStationResult.station.lng) / 2
-              ]}
-              icon={createNearestStationOverlayIcon(
-                nearestStationResult.station.name,
-                nearestStationResult.station.lines.join(" / "),
-                Math.max(1, Math.round(nearestStationResult.walkingDurationSeconds / 60)),
-                (nearestStationResult.walkingDistanceMeters / 1609.344).toFixed(1),
-                zoom < 13,
-                zoom < 11
-              )}
-              eventHandlers={{
-                click: () => {
-                  setIsNearestOverlayVisible(false);
-                  onClearNearestStation();
-                }
-              }}
-            />
-          ) : null}
         </>
       ) : null}
 
@@ -281,15 +309,26 @@ export function MetroMap({
       })}
 
       {stations.map((station) => {
+        const vreOverlap = visibleTransit.vre ? vreByMetroId[station.id] : undefined;
+        const marcOverlap = visibleTransit.marc ? marcByMetroId[station.id] : undefined;
+        // Skip if Metro hidden and no visible co-located transit at this station
+        if (!visibleTransit.metro && !marcOverlap && !vreOverlap) return null;
         const isSelected = selectedStations.some((selected) => selected.id === station.id);
         const shouldShowLabel =
           zoom >= ALL_STATION_LABEL_MIN_ZOOM || (isSelected && zoom >= SELECTED_STATION_LABEL_MIN_ZOOM);
+
+        // When Metro is hidden, use the standalone shape of the single visible transit type
+        const stationIcon = !visibleTransit.metro && vreOverlap && !marcOverlap
+          ? createVreStandaloneIcon(isSelected)
+          : !visibleTransit.metro && marcOverlap && !vreOverlap
+            ? createMarcStandaloneIcon(isSelected)
+            : createStationIcon(station, isSelected, marcOverlap, vreOverlap, visibleTransit.metro);
 
         return (
           <Fragment key={station.id}>
             <Marker
               position={[station.lat, station.lng]}
-              icon={createStationIcon(station, isSelected)}
+              icon={stationIcon}
               eventHandlers={{
                 click: () => onToggleStation(station.id, { focusMap: false })
               }}
@@ -298,12 +337,76 @@ export function MetroMap({
                 <strong>{station.name}</strong>
                 <br />
                 {station.lines.join(" / ")}
+                {marcOverlap ? ` · MARC ${marcOverlap.lines.join(" / ")}` : ""}
+                {vreOverlap ? ` · VRE ${vreOverlap.lines.join(" / ")}` : ""}
               </Tooltip>
             </Marker>
             {shouldShowLabel ? (
               <Marker
                 position={[station.lat, station.lng]}
                 icon={createStationLabelIcon(station.name, isSelected)}
+                interactive={false}
+              />
+            ) : null}
+          </Fragment>
+        );
+      })}
+
+      {/* Standalone MARC stations (no Metro overlap) */}
+      {visibleTransit.marc && standaloneMarcStations.map((marc) => {
+        const isMarcSelected = selectedStations.some((s) => s.id === marc.id);
+        const shouldShowLabel =
+          zoom >= ALL_STATION_LABEL_MIN_ZOOM || (isMarcSelected && zoom >= SELECTED_STATION_LABEL_MIN_ZOOM);
+        return (
+          <Fragment key={marc.id}>
+            <Marker
+              position={[marc.lat, marc.lng]}
+              icon={createMarcStandaloneIcon(isMarcSelected)}
+              eventHandlers={{
+                click: () => onToggleStation(marc.id, { focusMap: false })
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -4]}>
+                <strong>{marc.name}</strong>
+                <br />
+                MARC {marc.lines.join(" / ")}
+              </Tooltip>
+            </Marker>
+            {shouldShowLabel ? (
+              <Marker
+                position={[marc.lat, marc.lng]}
+                icon={createStationLabelIcon(marc.name, isMarcSelected)}
+                interactive={false}
+              />
+            ) : null}
+          </Fragment>
+        );
+      })}
+
+      {/* Standalone VRE stations (no Metro overlap) */}
+      {visibleTransit.vre && standaloneVreStations.map((vre) => {
+        const isVreSelected = selectedStations.some((s) => s.id === vre.id);
+        const shouldShowLabel =
+          zoom >= ALL_STATION_LABEL_MIN_ZOOM || (isVreSelected && zoom >= SELECTED_STATION_LABEL_MIN_ZOOM);
+        return (
+          <Fragment key={vre.id}>
+            <Marker
+              position={[vre.lat, vre.lng]}
+              icon={createVreStandaloneIcon(isVreSelected)}
+              eventHandlers={{
+                click: () => onToggleStation(vre.id, { focusMap: false })
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -4]}>
+                <strong>{vre.name}</strong>
+                <br />
+                VRE {vre.lines.join(" / ")}
+              </Tooltip>
+            </Marker>
+            {shouldShowLabel ? (
+              <Marker
+                position={[vre.lat, vre.lng]}
+                icon={createStationLabelIcon(vre.name, isVreSelected)}
                 interactive={false}
               />
             ) : null}
@@ -360,15 +463,11 @@ function MapViewController({ station, nearestStationResult }: MapViewControllerP
     }
 
     if (nearestStationResult) {
-      map.fitBounds(
-        [
-          [nearestStationResult.address.lat, nearestStationResult.address.lng],
-          [nearestStationResult.station.lat, nearestStationResult.station.lng]
-        ],
-        {
-          padding: [80, 80]
-        }
-      );
+      const allPoints: [number, number][] = [
+        [nearestStationResult.address.lat, nearestStationResult.address.lng],
+        ...nearestStationResult.stations.map((s) => [s.station.lat, s.station.lng] as [number, number])
+      ];
+      map.fitBounds(allPoints, { padding: [80, 80] });
       previousNearestResult.current = nearestStationResult;
       previousStationId.current = station?.id ?? null;
       return;
@@ -429,20 +528,50 @@ function MapZoomTracker({ onZoomChange }: MapZoomTrackerProps) {
 }
 
 
-function createStationIcon(station: MetroStation, isSelected: boolean) {
-  const width = Math.max(18, 10 + station.lines.length * 8);
-  const dots = station.lines
-    .map(
-      (line) =>
-        `<span class="stationStopDot" style="background:${LINE_COLORS[line] ?? "#385170"}"></span>`
-    )
-    .join("");
+const VRE_DIAMOND_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="12" height="12" class="stationVreIcon"><polygon points="10,1 19,10 10,19 1,10" fill="#EE3E42"/><ellipse cx="10" cy="10" rx="6" ry="4" fill="white"/><text x="10" y="10" text-anchor="middle" dominant-baseline="central" font-family="Arial,sans-serif" font-size="4.5" font-weight="700" fill="#1a1a1a">VRE</text><polygon points="10,1 19,10 10,19 1,10" fill="none" stroke="#ffffff" stroke-width="1" stroke-opacity="0.6"/></svg>`;
+
+const MARC_SQUARE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="8" height="8" class="stationMarcIcon"><defs><clipPath id="mc"><rect x="0" y="0" width="20" height="20" rx="4"/></clipPath></defs><rect x="0" y="0" width="10" height="20" fill="#F7941D" clip-path="url(#mc)"/><rect x="10" y="0" width="10" height="20" fill="#003DA5" clip-path="url(#mc)"/><rect x="0" y="0" width="20" height="20" rx="4" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-opacity="0.6"/></svg>`;
+
+function createStationIcon(station: MetroStation, isSelected: boolean, marc?: MarcStation, vre?: VreStation, showMetro = true) {
+  const metroWidth = showMetro ? Math.max(18, 10 + station.lines.length * 8) : 0;
+  const dividerExtra = (marc || vre) ? (showMetro ? 7 : 0) : 0;
+  const marcExtra = marc ? 12 : 0;
+  const vreExtra = vre ? 12 : 0;
+  const width = Math.max(18, metroWidth + dividerExtra + marcExtra + vreExtra);
+
+  const dots = showMetro
+    ? station.lines
+        .map((line) => `<span class="stationStopDot" style="background:${LINE_COLORS[line] ?? "#385170"}"></span>`)
+        .join("")
+    : "";
+
+  const transitPart = (marc || vre)
+    ? `${showMetro ? '<span class="stationVreDivider"></span>' : ""}${marc ? MARC_SQUARE_SVG : ""}${vre ? VRE_DIAMOND_SVG : ""}`
+    : "";
 
   return new DivIcon({
     className: "stationStopIcon",
-    html: `<span class="stationStop${isSelected ? " selected" : ""}"><span class="stationStopDots">${dots}</span></span>`,
+    html: `<span class="stationStop${isSelected ? " selected" : ""}"><span class="stationStopDots">${dots}</span>${transitPart}</span>`,
     iconSize: [width, 18],
     iconAnchor: [Math.round(width / 2), 9]
+  });
+}
+
+function createMarcStandaloneIcon(isSelected: boolean) {
+  return new DivIcon({
+    className: "stationStopIcon",
+    html: `<span class="marcStandaloneStop${isSelected ? " selected" : ""}">${MARC_SQUARE_SVG}</span>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11]
+  });
+}
+
+function createVreStandaloneIcon(isSelected: boolean) {
+  return new DivIcon({
+    className: "stationStopIcon",
+    html: `<span class="vreStandaloneStop${isSelected ? " selected" : ""}">${VRE_DIAMOND_SVG}</span>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
   });
 }
 
