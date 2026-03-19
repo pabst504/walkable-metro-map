@@ -106,7 +106,13 @@ export function MetroMapShell() {
       return [];
     }
 
-    const matchingStations = WMATA_STATIONS.filter((station) => {
+    const allStations = [
+      ...WMATA_STATIONS,
+      ...MARC_STATIONS,
+      ...VRE_STATIONS,
+    ];
+
+    const matchingStations = allStations.filter((station) => {
       const haystack = `${station.name} ${station.lines.join(" ")}`.toLowerCase();
       return haystack.includes(normalizedQuery);
     });
@@ -486,7 +492,7 @@ export function MetroMapShell() {
             <input
               ref={stationSearchRef}
               type="search"
-              placeholder="Fort Totten, Silver, Red..."
+              placeholder="Fort Totten, Penn, Manassas..."
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
