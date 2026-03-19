@@ -317,7 +317,7 @@ export function MetroMapShell() {
           <p className="eyebrow">DMV Stations</p>
           <h1>Walkable Transit Map</h1>
           <p className="lede">
-            Find stations near you or explore walkable access across DC's Metro, MARC, and VRE networks.
+            Find stations near you or explore walkable access across DC&apos;s Metro, MARC, and VRE networks.
           </p>
         </div>
 
