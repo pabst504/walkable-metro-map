@@ -4,6 +4,8 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { NearestStationResult } from "@/lib/nearest-station";
 import { WMATA_STATIONS } from "@/lib/wmata-stations";
+import { VRE_STATIONS } from "@/lib/vre-stations";
+import { MARC_STATIONS } from "@/lib/marc-stations";
 
 const MetroMap = dynamic(() => import("@/components/metro-map").then((mod) => mod.MetroMap), {
   ssr: false
@@ -69,6 +71,7 @@ export function MetroMapShell() {
   const [themePreference, setThemePreference] = useState<MapThemePreference>("light");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const [visibleTransit, setVisibleTransit] = useState({ metro: true, marc: true, vre: true });
   const [nearestStationResult, setNearestStationResult] = useState<NearestStationResult | null>(null);
   const [loadingIsochroneStationIds, setLoadingIsochroneStationIds] = useState<string[]>([]);
   const [addressStatus, setAddressStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -131,7 +134,11 @@ export function MetroMapShell() {
   }, [deferredQuery, selectedIds]);
 
   const selectedStations = useMemo(
-    () => WMATA_STATIONS.filter((station) => selectedIds.includes(station.id)),
+    () => [
+      ...WMATA_STATIONS.filter((station) => selectedIds.includes(station.id)),
+      ...VRE_STATIONS.filter((station) => selectedIds.includes(station.id)),
+      ...MARC_STATIONS.filter((station) => selectedIds.includes(station.id))
+    ],
     [selectedIds]
   );
   const customMinutes = availableCustomMinutes.filter(
@@ -268,7 +275,7 @@ export function MetroMapShell() {
         return;
       }
 
-      if (!("station" in payload)) {
+      if (!("stations" in payload) || !Array.isArray(payload.stations) || payload.stations.length === 0) {
         setAddressStatus("error");
         setAddressError("Unable to look up that address.");
         return;
@@ -277,7 +284,15 @@ export function MetroMapShell() {
       setNearestStationResult(payload);
       setAddressStatus("idle");
       setAddressError("");
-      setFocusedStationId(payload.station.id);
+
+      // Auto-select all stations within 15-min walk (newest on top).
+      setSelectedIds((prev) => {
+        const incoming = payload.stations.map((s: { station: { id: string } }) => s.station.id);
+        const filtered = incoming.filter((id: string) => !prev.includes(id));
+        return [...filtered.reverse(), ...prev];
+      });
+
+      setFocusedStationId(payload.stations[0].station.id);
       if (isMobile) {
         setSidebarOpen(false);
       }
@@ -287,23 +302,65 @@ export function MetroMapShell() {
     }
   }
 
-  const walkingDistanceMiles = nearestStationResult
-    ? (nearestStationResult.walkingDistanceMeters / 1609.344).toFixed(1)
+  const nearestWalk = nearestStationResult?.stations[0] ?? null;
+  const walkingDistanceMiles = nearestWalk
+    ? (nearestWalk.walkingDistanceMeters / 1609.344).toFixed(1)
     : null;
-  const walkingMinutes = nearestStationResult
-    ? Math.max(1, Math.round(nearestStationResult.walkingDurationSeconds / 60))
+  const walkingMinutes = nearestWalk
+    ? Math.max(1, Math.round(nearestWalk.walkingDurationSeconds / 60))
     : null;
 
   return (
     <main className="shell" data-theme={resolvedTheme} data-sidebar={sidebarOpen ? "open" : "closed"}>
       <section id="station-drawer" className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="hero desktopOnly">
-          <p className="eyebrow">WMATA Stations</p>
-          <h1>Walkable Metro Map</h1>
+          <p className="eyebrow">DMV Stations</p>
+          <h1>Walkable Transit Map</h1>
           <p className="lede">
-            Search for a station to view its walking shed, or enter an address to find the nearest
-            Metro station and walking route.
+            Find stations near you or explore walkable access across DC's Metro, MARC, and VRE networks.
           </p>
+        </div>
+
+        <div className="sidebarSection layersSection">
+          <div className="sectionHeader">
+            <span className="sectionEyebrow">Layers</span>
+            <h2>Filter transit on the map</h2>
+          </div>
+          <div className="controls transitLayerRow">
+            <div className="toggleRow">
+              {([
+                { key: "metro", logo: "/metro-logo.svg", alt: "Metro", color: "#0d63ae", logoH: 26 },
+                { key: "marc",  logo: "/marc-logo.svg",  alt: "MARC",  color: "#F7941D", logoH: 17 },
+                { key: "vre",   logo: "/vre-logo.svg",   alt: "VRE",   color: "#EE3E42", logoH: 26 }
+              ] as const).map(({ key, logo, alt, color, logoH }) => {
+                const active = visibleTransit[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={active ? "toggle layerToggle active" : "toggle layerToggle"}
+                    onClick={() => setVisibleTransit((prev) => ({ ...prev, [key]: !prev[key] }))}
+                    style={active ? { background: color, borderColor: "transparent" } : { borderColor: color }}
+                  >
+                    <img
+                      src={logo}
+                      alt={alt}
+                      height={logoH}
+                      style={{
+                      width: "auto",
+                      display: "block",
+                      filter: active
+                        ? key === "vre"
+                          ? "drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1.5px #fff)"
+                          : "brightness(0) invert(1)"
+                        : "none"
+                    }}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <div className="sidebarSection addressSection">
@@ -557,6 +614,9 @@ export function MetroMapShell() {
           onClearNearestStation={clearNearestStation}
           onIsochroneLoadingChange={setLoadingIsochroneStationIds}
           onToggleStation={toggleStation}
+          vreStations={VRE_STATIONS}
+          marcStations={MARC_STATIONS}
+          visibleTransit={visibleTransit}
         />
         {activeMinutes.length > 0 && (
           <div className="isochroneLegend" aria-label="Walking shed legend">

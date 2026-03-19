@@ -1,4 +1,17 @@
-import type { MetroStation } from "@/lib/wmata-stations";
+export type BaseStation = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  lines: string[];
+};
+
+export type StationWalkResult = {
+  station: BaseStation;
+  walkingDistanceMeters: number;
+  walkingDurationSeconds: number;
+  route: GeoJSON.LineString;
+};
 
 export type NearestStationResult = {
   matchedAddress: string;
@@ -6,8 +19,5 @@ export type NearestStationResult = {
     lat: number;
     lng: number;
   };
-  station: MetroStation;
-  walkingDistanceMeters: number;
-  walkingDurationSeconds: number;
-  route: GeoJSON.LineString;
+  stations: StationWalkResult[];
 };

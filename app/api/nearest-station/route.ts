@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WMATA_STATIONS } from "@/lib/wmata-stations";
-import type { NearestStationResult } from "@/lib/nearest-station";
+import { VRE_STATIONS } from "@/lib/vre-stations";
+import { MARC_STATIONS } from "@/lib/marc-stations";
+import type { NearestStationResult, BaseStation } from "@/lib/nearest-station";
 
 type GeocodeFeature = {
   geometry?: {
@@ -62,73 +64,89 @@ export async function GET(request: NextRequest) {
     }
 
     const [originLng, originLat] = coordinates;
-    const candidateStations = [...WMATA_STATIONS]
-      .sort(
-        (left, right) =>
-          haversineDistance(originLat, originLng, left.lat, left.lng) -
-          haversineDistance(originLat, originLng, right.lat, right.lng)
-      )
-      .slice(0, 5);
 
-    const routeCandidates = await Promise.all(
-      candidateStations.map(async (station) => {
-        const directionsResponse = await fetch(
-          "https://api.openrouteservice.org/v2/directions/foot-walking/geojson",
-          {
-            method: "POST",
-            headers: {
-              Authorization: apiKey,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              coordinates: [
-                [originLng, originLat],
-                [station.lng, station.lat]
-              ]
-            }),
-            cache: "no-store"
-          }
-        );
+    // 15 min walk at ~80 m/min = 1200 m. Use 1800 m haversine buffer to
+    // account for real routes being longer than straight-line distance.
+    const MAX_WALK_SECONDS = 15 * 60;
+    const HAVERSINE_BUFFER_METERS = 1800;
 
-        if (!directionsResponse.ok) {
-          return null;
-        }
+    const allStations: BaseStation[] = [
+      ...WMATA_STATIONS,
+      // Skip co-located VRE/MARC stations — the Metro station at the same spot covers them
+      ...VRE_STATIONS.filter((v) => !v.metroStationId),
+      ...MARC_STATIONS.filter((m) => !m.metroStationId)
+    ];
 
-        const directionsData = (await directionsResponse.json()) as {
-          features?: DirectionsFeature[];
-        };
-        const routeFeature = directionsData.features?.[0];
-        const geometry = routeFeature?.geometry;
-        const distance = routeFeature?.properties?.summary?.distance;
-        const duration = routeFeature?.properties?.summary?.duration;
-
-        if (!geometry || !Number.isFinite(distance) || !Number.isFinite(duration)) {
-          return null;
-        }
-
-        return {
-          station,
-          geometry,
-          distanceMeters: Number(distance),
-          durationSeconds: Number(duration)
-        };
-      })
+    const candidateStations = allStations.filter(
+      (station) =>
+        haversineDistance(originLat, originLng, station.lat, station.lng) <=
+        HAVERSINE_BUFFER_METERS
     );
 
-    const bestRoute = routeCandidates
-      .filter(
-        (
-          value
-        ): value is {
-          station: (typeof WMATA_STATIONS)[number];
-          geometry: GeoJSON.LineString;
-          distanceMeters: number;
-          durationSeconds: number;
-        } => value !== null
-      )
-      .sort((left, right) => left.durationSeconds - right.durationSeconds)[0];
+    type RouteCandidate = {
+      station: BaseStation;
+      geometry: GeoJSON.LineString;
+      distanceMeters: number;
+      durationSeconds: number;
+    };
 
-    if (!bestRoute) {
+    const routeCandidates = (
+      await Promise.all(
+        candidateStations.map(async (station): Promise<RouteCandidate | null> => {
+          const directionsResponse = await fetch(
+            "https://api.openrouteservice.org/v2/directions/foot-walking/geojson",
+            {
+              method: "POST",
+              headers: {
+                Authorization: apiKey,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                coordinates: [
+                  [originLng, originLat],
+                  [station.lng, station.lat]
+                ]
+              }),
+              cache: "no-store"
+            }
+          );
+
+          if (!directionsResponse.ok) return null;
+
+          const directionsData = (await directionsResponse.json()) as {
+            features?: DirectionsFeature[];
+          };
+          const routeFeature = directionsData.features?.[0];
+          const geometry = routeFeature?.geometry;
+          const distance = routeFeature?.properties?.summary?.distance;
+          const duration = routeFeature?.properties?.summary?.duration;
+
+          if (!geometry || !Number.isFinite(distance) || !Number.isFinite(duration)) {
+            return null;
+          }
+
+          return {
+            station,
+            geometry,
+            distanceMeters: Number(distance),
+            durationSeconds: Number(duration)
+          };
+        })
+      )
+    ).filter((v): v is RouteCandidate => v !== null);
+
+    // Keep only stations reachable within 15 min, sorted nearest first.
+    const withinRange = routeCandidates
+      .filter((c) => c.durationSeconds <= MAX_WALK_SECONDS)
+      .sort((a, b) => a.durationSeconds - b.durationSeconds);
+
+    // Fallback: if nothing is within 15 min, return the single closest station.
+    const results =
+      withinRange.length > 0
+        ? withinRange
+        : routeCandidates.sort((a, b) => a.durationSeconds - b.durationSeconds).slice(0, 1);
+
+    if (results.length === 0) {
       return NextResponse.json(
         { error: "Unable to compute a walking route to nearby stations." },
         { status: 502 }
@@ -141,10 +159,12 @@ export async function GET(request: NextRequest) {
         lat: originLat,
         lng: originLng
       },
-      station: bestRoute.station,
-      walkingDistanceMeters: bestRoute.distanceMeters,
-      walkingDurationSeconds: bestRoute.durationSeconds,
-      route: bestRoute.geometry
+      stations: results.map((r) => ({
+        station: r.station,
+        walkingDistanceMeters: r.distanceMeters,
+        walkingDurationSeconds: r.durationSeconds,
+        route: r.geometry
+      }))
     };
 
     return NextResponse.json(result);
